@@ -21,7 +21,6 @@ const zaproxy = new ZapClient(zapOptions);
 app.use(cors());
 app.use(express.json());
 
-
 /**
  * 🕷️ Start a Spider Scan (Crawls Website)
  */
@@ -112,7 +111,7 @@ app.get("/scan/results/:url", async (req, res) => {
     };
     console.log("Fetching scan results...");
 
-    const { alerts }  = await zaproxy.alert.alerts(params);
+    let { alerts } = await zaproxy.alert.alerts(params);
 
     // Log the raw response to debug missing fields
     // console.log(
@@ -120,11 +119,7 @@ app.get("/scan/results/:url", async (req, res) => {
     //   JSON.stringify(alertsResponse, null, 2)
     // );
 
-    if (
-      !alerts ||
-      !Array.isArray(alerts) ||
-      alerts.length === 0
-    ) {
+    if (!alerts || !Array.isArray(alerts) || alerts.length === 0) {
       return res.json({ message: "No vulnerabilities found.", alerts: [] });
     }
 
@@ -161,13 +156,43 @@ app.get("/scan/results/:url", async (req, res) => {
     */
 
     // Safely parse scan results
-    const alertsResponse = alerts.map((alert) => ({
+    // filter out alerts with risk:informational and sort by risk level (high to low)
+    alerts = alerts
+      .filter((alert) => alert.risk !== "Informational")
+      .sort((a, b) => {
+        const riskLevels = ["Low", "Medium", "High"];
+        return riskLevels.indexOf(b.risk) - riskLevels.indexOf(a.risk);
+      });
+
+    // group alerts by name and then combine the urls
+    const alertsMap = alerts.reduce((acc, alert) => {
+      if (!acc[alert.name]) {
+        acc[alert.name] = {
+          name: alert.name,
+          risk: alert.risk,
+          description: alert.description,
+          solution: alert.solution,
+          urls: [alert.url],
+        };
+      } else {
+        acc[alert.name].urls.push(alert.url);
+      }
+      return acc;
+    }, {});
+
+    // Convert map to array format
+    const groupedAlerts = Object.values(alertsMap);
+
+    console.log("grouped alerts: ", groupedAlerts);
+
+    const alertsResponse = groupedAlerts.map((alert) => ({
       name: alert.name || "Unknown Vulnerability",
-      risk: alert.risk || "Unknown",
-      url: alert.url ? alert.url : "No URL found",
+      risk: alert.risk || "Unknown Risk",
       description: alert.description
         ? alert.description
         : "No description available",
+      solution: alert.solution ? alert.solution : "No solution available",
+      urls: alert.urls ? alert.urls : "No URL found",
     }));
 
     console.log("Finished fetching scan results");
@@ -179,12 +204,63 @@ app.get("/scan/results/:url", async (req, res) => {
 });
 
 /**
- * 🔎 Match Findings with CVE Data
+ * 📝 Bulk CVE Matching for Filtered Alerts
  */
-app.get("/scan/cve-matching/:url", async (req, res) => {
-//   const keyword = req.params.keyword;
+app.post("/scan/cve", async (req, res) => {
   try {
-    const url = `https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=${encodeURIComponent(
+    const alerts = req.body.alertsResponse;
+    const cveApiV2BaseUrl = "https://services.nvd.nist.gov/rest/json/cves/2.0";
+    console.log("Starting CVE matching...");
+    // Process alerts concurrently
+    const matchPromises = alerts.map(async (alert) => {
+      const url = `${cveApiV2BaseUrl}?keywordSearch=${encodeURIComponent(
+        alert.name
+      )}`;
+
+      const headers = {
+        "Content-Type": "application/json",
+        "x-apiKey": process.env.NVD_API_KEY,
+      };
+
+      await new Promise((resolve) => setTimeout(resolve, 6000)); // Sleep for 6 second before each request
+      const response = await axios.get(url, { headers });
+
+      return {
+        alert: {
+          name: alert.name,
+          risk: alert.risk,
+          description: alert.description,
+          solution: alert.solution,
+          urls: alert.urls,
+        },
+        cves: response.data.vulnerabilities.map((cve) => ({
+          id: cve.cve.id,
+          description: cve.cve.descriptions[0].value,
+          metrics: cve.cve.metrics || {},
+          references: cve.cve.references,
+        })),
+      };
+    });
+
+    const matchedResults = await Promise.all(matchPromises);
+
+    console.log("Finished matching CVEs");
+
+    res.json({ matches: matchedResults });
+  } catch (error) {
+    console.error("CVE matching error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * 🔎 Search CVE by Keyword
+ */
+app.get("/scan/cve/:keyword", async (req, res) => {
+  try {
+    const keyword = req.params.keyword;
+    const cveApiV2BaseUrl = "https://services.nvd.nist.gov/rest/json/cves/2.0";
+    const url = `${cveApiV2BaseUrl}?keywordSearch=${encodeURIComponent(
       keyword
     )}`;
 
