@@ -2,19 +2,19 @@
 
 @include nb-install-component() {
   ::ng-deep .high {
-    background-color: #F13637;
+    background-color: #f13637;
   }
 
   ::ng-deep .medium {
-    background-color: #FD8E39;
+    background-color: #fd8e39;
   }
 
   ::ng-deep .low {
-    background-color: #F3BB1B;
+    background-color: #f3bb1b;
   }
 
   ::ng-deep .info {
-    background-color: #3F66FB;
+    background-color: #3f66fb;
   }
 
   ::ng-deep .table-item {
