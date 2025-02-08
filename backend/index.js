@@ -1,7 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const axios = require("axios");
-const { exec } = require("child_process");
+const { exec, spawn } = require("child_process");
 const ZapClient = require("zaproxy");
 // const { OpenAI } = require("langchain/llms/openai");
 // const { PromptTemplate } = require("langchain/prompts");
@@ -9,11 +9,12 @@ const ZapClient = require("zaproxy");
 const { ChatPromptTemplate } = require("@langchain/core/prompts");
 const { ChatOpenAI } = require("@langchain/openai");
 const dns = require("dns").promises;
-
+const net = require("net");
 
 require("dotenv").config();
 
 const app = express();
+const ZAP_API = "http://localhost:8080/JSON"; // Change if your ZAP runs on a different port
 
 app.use(cors());
 app.use(express.json());
@@ -36,9 +37,98 @@ const llm = new ChatOpenAI({
 });
 
 /**
- * 🎯 Run Complete Security Scan Pipeline
+ * 🚀 Start a Full Scan - Web and Network
+ *
  */
-app.get("/scan/full/:url", async (req, res) => {
+app.get("/scan/full/:target", async (req, res) => {
+  const scanStatus = {
+    currentStage: "initializing",
+    stages: {
+      spider: "pending",
+      active: "pending",
+      results: "pending",
+      cve: "pending",
+      network: "pending",
+    },
+  };
+
+  try {
+    const targetUrl = decodeURIComponent(req.params.target);
+
+    // Spider Scan
+    scanStatus.currentStage = "spider";
+    const spiderResponse = await axios.get(
+      `http://localhost:${PORT}/scan/spider/${encodeURIComponent(targetUrl)}`
+    );
+    scanStatus.stages.spider = "completed";
+
+    // Active Scan
+    scanStatus.currentStage = "active";
+    const activeScanResponse = await axios.get(
+      `http://localhost:${PORT}/scan/active/${encodeURIComponent(targetUrl)}`
+    );
+    scanStatus.stages.active = "completed";
+
+    // Get Results
+    scanStatus.currentStage = "results";
+    const resultsResponse = await axios.get(
+      `http://localhost:${PORT}/scan/results/${encodeURIComponent(targetUrl)}`
+    );
+    scanStatus.stages.results = "completed";
+
+    // Match CVEs if vulnerabilities found
+    scanStatus.currentStage = "cve";
+    let cveMatches = [];
+    if (
+      resultsResponse.data.alertsResponse &&
+      resultsResponse.data.alertsResponse.length > 0
+    ) {
+      const cveResponse = await axios.post(
+        `http://localhost:${PORT}/scan/cve`,
+        { alertsResponse: resultsResponse.data.alertsResponse }
+      );
+      cveMatches = cveResponse.data.matches;
+    }
+    scanStatus.stages.cve = "completed";
+
+    // Network Scan
+    scanStatus.currentStage = "network";
+    const networkScanResponse = await axios.get(
+      `http://localhost:${PORT}/scan/network/${encodeURIComponent(targetUrl)}`
+    );
+    scanStatus.stages.network = "completed";
+
+    // Return combined results
+    res.json({
+      status: scanStatus,
+      target: targetUrl,
+      timestamp: new Date().toISOString(),
+      results: {
+        webscan: {
+          spiderScanId: spiderResponse.data.scanId,
+          activeScanId: activeScanResponse.data.scanId,
+          vulnerabilities: cveMatches || [],
+        },
+        networkscan: networkScanResponse.data,
+      },
+    });
+  } catch (error) {
+    console.error(
+      `Error during ${scanStatus.currentStage} scan:`,
+      error.message
+    );
+    scanStatus.stages[scanStatus.currentStage] = "failed";
+    res.status(500).json({
+      error: `Failed during ${scanStatus.currentStage} scan: ${error.message}`,
+      status: scanStatus,
+    });
+  }
+});
+
+/**
+ * 🎯 Run Complete Web Scan
+ */
+app.get("/scan/web/:target", async (req, res) => {
   const scanStatus = {
     currentStage: "initializing",
     stages: {
@@ -50,7 +140,7 @@ app.get("/scan/full/:url", async (req, res) => {
   };
 
   try {
-    const targetUrl = decodeURIComponent(req.params.url);
+    const targetUrl = decodeURIComponent(req.params.target);
 
     // Spider Scan
     scanStatus.currentStage = "spider";
@@ -91,12 +181,16 @@ app.get("/scan/full/:url", async (req, res) => {
     // Return combined results
     res.json({
       status: scanStatus,
-      url: targetUrl,
+      target: targetUrl,
       timestamp: new Date().toISOString(),
-      spiderScanId: spiderResponse.data.scanId,
-      activeScanId: activeScanResponse.data.scanId,
+      results: {
+        webscan: {
+          spiderScanId: spiderResponse.data.scanId,
+          activeScanId: activeScanResponse.data.scanId,
+          vulnerabilities: cveMatches || [],
+        },
+      },
       //   vulnerabilities: resultsResponse.data.alertsResponse || [],
-      vulnerabilities: cveMatches || [],
     });
   } catch (error) {
     console.error(
@@ -114,9 +208,9 @@ app.get("/scan/full/:url", async (req, res) => {
 /**
  * 🕷️ Start a Spider Scan (Crawls Website)
  */
-app.get("/scan/spider/:url", async (req, res) => {
+app.get("/scan/spider/:target", async (req, res) => {
   try {
-    const targetUrl = decodeURIComponent(req.params.url);
+    const targetUrl = decodeURIComponent(req.params.target);
     const params = {
       url: targetUrl,
     };
@@ -155,8 +249,8 @@ app.get("/scan/spider/:url", async (req, res) => {
 /**
  * 🔥 Start an Active Scan (Finds Security Issues)
  */
-app.get("/scan/active/:url", async (req, res) => {
-  const targetUrl = decodeURIComponent(req.params.url);
+app.get("/scan/active/:target", async (req, res) => {
+  const targetUrl = decodeURIComponent(req.params.target);
   const params = {
     url: targetUrl,
   };
@@ -193,9 +287,9 @@ app.get("/scan/active/:url", async (req, res) => {
 /**
  * 📊 Get Scan Results (Alerts Found)
  */
-app.get("/scan/results/:url", async (req, res) => {
+app.get("/scan/results/:target", async (req, res) => {
   try {
-    const targetUrl = decodeURIComponent(req.params.url);
+    const targetUrl = decodeURIComponent(req.params.target);
     const params = {
       baseurl: targetUrl,
     };
@@ -252,12 +346,15 @@ app.get("/scan/results/:url", async (req, res) => {
         acc[alert.name] = {
           name: alert.name,
           risk: alert.risk,
+          confidence: alert.confidence,
           description: alert.description,
           solution: alert.solution,
-          urls: [alert.url],
+          count: 1,
+          // urls: [alert.url],
         };
       } else {
-        acc[alert.name].urls.push(alert.url);
+        acc[alert.name].count += 1;
+        // acc[alert.name].urls.push(alert.url);
       }
       return acc;
     }, {});
@@ -268,11 +365,13 @@ app.get("/scan/results/:url", async (req, res) => {
     const alertsResponse = groupedAlerts.map((alert) => ({
       name: alert.name || "Unknown Vulnerability",
       risk: alert.risk || "Unknown Risk",
+      confidence: alert.confidence || "Unknown Confidence",
       description: alert.description
         ? alert.description
         : "No description available",
       solution: alert.solution ? alert.solution : "No solution available",
-      urls: alert.urls ? alert.urls : "No URL found",
+      count: alert.count,
+      // urls: alert.urls ? alert.urls : "No URL found",
     }));
 
     // run the alerts through the LLM to generate keywords for CVE lookup
@@ -323,43 +422,42 @@ app.post("/scan/cve", async (req, res) => {
     const matchPromises = alerts.map(async (alert) => {
       if (!alert.cveKeyword) {
         return {
-          alert: {
-            name: alert.name,
-            risk: alert.risk,
-            description: alert.description,
-            solution: alert.solution,
-            urls: alert.urls,
-          },
-          cves: [],
+          ...alert,
+          cveIds: [],
         };
       }
+      console.log("Keyword: ", alert.cveKeyword);
       const url = `${cveApiV2BaseUrl}?keywordSearch=${encodeURIComponent(
         alert.cveKeyword
       )}`;
 
-      const headers = {
-        "Content-Type": "application/json",
-        "x-apiKey": process.env.NVD_API_KEY,
+      const config = {
+        headers: {
+          "Content-Type": "application/json",
+          "x-apiKey": process.env.NVD_API_KEY
+        }
       };
 
-      await new Promise((resolve) => setTimeout(resolve, 8000)); // Sleep for 6 second before each request
-      const response = await axios.get(url, { headers });
+      // const headers = {
+      //   "Content-Type": "application/json",
+      //   "x-apiKey": process.env.NVD_API_KEY,
+      // };
+
+      // const axiosConfig = {
+      //   headers: {
+      //     "Content-Type": "application/json",
+      //     "Connection": "close", // Ensures Axios does not reuse old TCP connections
+      //     "x-apiKey": process.env.NVD_API_KEY,
+      //   },
+      // };
+
+      await new Promise((resolve) => setTimeout(resolve, 20000)); // Sleep for 6 second before each request
+      const response = await axios.get(url, config);
 
       return {
-        alert: {
-          name: alert.name,
-          risk: alert.risk,
-          description: alert.description,
-          solution: alert.solution,
-          urls: alert.urls,
-          cveKeyword: alert.cveKeyword || "No CVE Keyword",
-        },
-        cves: response.data.vulnerabilities.map((cve) => ({
-          id: cve.cve.id,
-          description: cve.cve.descriptions[0].value,
-          metrics: cve.cve.metrics || {},
-          references: cve.cve.references,
-        })),
+        ...alert,
+        cveKeyword: alert.cveKeyword || "No CVE Keyword",
+        cveIds: response.data.vulnerabilities.map((cve) => cve.cve.id),
       };
     });
 
@@ -370,6 +468,7 @@ app.post("/scan/cve", async (req, res) => {
     res.json({ matches: matchedResults });
   } catch (error) {
     console.error("CVE matching error:", error.message);
+    console.log('full error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -418,13 +517,13 @@ app.get("/scan/cve/:keyword", async (req, res) => {
 });
 
 // Run Nmap Scan
-app.get("/scan/network/:ip", (req, res) => {
-  const targetIP = req.params.ip;
-  exec(`nmap -p 22,80,443 ${targetIP}`, (error, stdout) => {
-    if (error) return res.status(500).json({ error: error.message });
-    res.json({ result: stdout });
-  });
-});
+// app.get("/scan/network/:ip", (req, res) => {
+//   const targetIP = req.params.ip;
+//   exec(`nmap -p 22,80,443 ${targetIP}`, (error, stdout) => {
+//     if (error) return res.status(500).json({ error: error.message });
+//     res.json({ result: stdout });
+//   });
+// });
 
 app.get(
   "/generate-cve-keyword/:vulnerabilityName/:vulnerabilityDescription",
@@ -440,6 +539,90 @@ app.get(
     res.json({ keyword });
   }
 );
+
+// app.get("/scan/network/:target", async (req, res) => {
+//   try {
+//     let target = decodeURIComponent(req.params.target);
+
+//     // Check if input is an IP or a URL
+//     const isIP = /^[0-9.]+$/.test(target);
+//     if (!isIP) {
+//       console.log(`Resolving IP for ${target}...`);
+//       target = await resolveIP(target); // Convert URL to IP
+//     }
+
+//     console.log(`🔍 Started network scan for IP: ${target}`);
+
+//     // Run Nmap scan
+//     exec(`nmap -p 1-1024 ${target}`, (error, stdout) => {
+//       if (error) return res.status(500).json({ error: error.message });
+//       const nmapResult = parseNmapOutput(stdout);
+
+//       console.log(`🔍 Completed network scan for IP: ${target}`);
+
+//       res.json({ ...nmapResult });
+//     });
+//   } catch (error) {
+//     res.status(500).json({ error: error.message });
+//   }
+// });
+// app.get("/scan/network/:target", async (req, res) => {
+//   try {
+//     let target = decodeURIComponent(req.params.target);
+
+//     // Updated regex to support both IPv4 and IPv6
+//     const isIPv4 = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(target);
+//     const isIPv6 = /^(?:[A-F0-9]{1,4}:){7}[A-F0-9]{1,4}$/i.test(target);
+
+//     if (!isIPv4 && !isIPv6) {
+//       console.log(`Resolving IP for ${target}...`);
+//       target = await resolveIP(target);
+//     }
+
+//     console.log(`🔍 Started network scan for IP: ${target}`);
+
+//     // Format target for nmap (IPv6 needs brackets)
+//     // const formattedTarget = isIPv6 ? `[${target}]` : target;
+
+//     // Add -6 flag for IPv6
+//     const nmapCommand = isIPv6
+//       ? `nmap -6 -p 1-1024 ${target}`
+//       : `nmap -p 1-1024 ${target}`;
+
+//     exec(nmapCommand, (error, stdout) => {
+//       if (error) return res.status(500).json({ error: error.message });
+//       console.log('result: ',stdout);
+//       const nmapResult = parseNmapOutput(stdout);
+
+//       console.log(`🔍 Completed network scan for IP: ${target}`);
+
+//       res.json({ ...nmapResult });
+//     });
+//   } catch (error) {
+//     res.status(500).json({ error: error.message });
+//   }
+// });
+
+// // Add this helper function
+// async function resolveIP(url) {
+//   const dns = require('dns').promises;
+//   try {
+//     const hostname = new URL(url).hostname;
+//     const records = await Promise.all([
+//       dns.resolve4(hostname).catch(() => []),
+//       dns.resolve6(hostname).catch(() => [])
+//     ]);
+
+//     const [ipv4, ipv6] = records;
+//     if (!ipv4.length && !ipv6.length) {
+//       throw new Error('No IP addresses found');
+//     }
+
+//     return ipv6.length ? ipv6[0] : ipv4[0];
+//   } catch (error) {
+//     throw new Error(`Failed to resolve IP: ${error.message}`);
+//   }
+// }
 
 async function generateCveKeywords({
   vulnerabilityName,
@@ -474,6 +657,209 @@ async function generateCveKeywords({
     return [vulnerabilityName];
   }
 }
+
+// app.get("/scan/network/:target", async (req, res) => {
+//   try {
+//     let target = decodeURIComponent(req.params.target);
+
+//     // Updated IPv6 regex to handle all valid formats
+//     const isIPv4 = net.isIPv4(target);
+//     const isIPv6 = net.isIPv6(target);
+
+//     // Debug logging
+//     console.log("Target:", target);
+//     console.log("IPv4 detection:", isIPv4);
+//     console.log("IPv6 detection:", isIPv6);
+
+//     if (!isIPv4 && !isIPv6) {
+//       console.log(`Resolving IP for ${target}...`);
+//       target = await resolveIP(target); // Convert domain to IP
+//     }
+
+//     console.log(`🔍 Starting network scan for: ${target}`);
+
+//     // Format IPv6 addresses correctly with brackets
+//     const formattedTarget = isIPv6 ? `[${target}]` : target;
+//     const nmapArgs =
+//       isIPv6 || (!isIPv4 && !isIPv6)
+//         ? ["-6", "-p", "22,80,443", formattedTarget]
+//         : ["-p", "22,80,443", formattedTarget];
+
+//     // Run Nmap scan using spawn() to prevent output truncation
+//     const nmapProcess = spawn("nmap", nmapArgs);
+
+//     let output = "";
+//     nmapProcess.stdout.on("data", (data) => {
+//       output += data.toString();
+//     });
+
+//     nmapProcess.stderr.on("data", (data) => {
+//       console.error("Nmap Error:", data.toString());
+//     });
+
+//     nmapProcess.on("close", (code) => {
+//       if (code !== 0) {
+//         return res
+//           .status(500)
+//           .json({ error: `Nmap scan failed with exit code ${code}` });
+//       }
+
+//       console.log(`🔍 Completed network scan for ${target}`);
+//       const nmapResult = parseNmapOutput(output);
+//       res.json(nmapResult);
+//     });
+//   } catch (error) {
+//     res.status(500).json({ error: error.message });
+//   }
+// });
+
+// Helper: Validate IPv4 address (each octet 0-255)
+function isIPv4Address(ip) {
+  const ipv4Regex = /^(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
+  return ipv4Regex.test(ip);
+}
+
+// Helper: Validate IPv6 address, including shorthand notation (e.g., "::")
+function isIPv6Address(ip) {
+  const ipv6Regex = /^((?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:){1,7}:|(?:[0-9A-Fa-f]{1,4}:){1,6}:[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:){1,5}(?::[0-9A-Fa-f]{1,4}){1,2}|(?:[0-9A-Fa-f]{1,4}:){1,4}(?::[0-9A-Fa-f]{1,4}){1,3}|(?:[0-9A-Fa-f]{1,4}:){1,3}(?::[0-9A-Fa-f]{1,4}){1,4}|(?:[0-9A-Fa-f]{1,4}:){1,2}(?::[0-9A-Fa-f]{1,4}){1,5}|[0-9A-Fa-f]{1,4}:(?:(?::[0-9A-Fa-f]{1,4}){1,6})|:(?:(?::[0-9A-Fa-f]{1,4}){1,7}|:))$/;
+  return ipv6Regex.test(ip);
+}
+
+// Improved network scan endpoint
+app.get("/scan/network/:target", async (req, res) => {
+  try {
+    let target = decodeURIComponent(req.params.target);
+
+    // Use our helper functions to test for IPv4 and IPv6
+    let isIPv4 = isIPv4Address(target);
+    let isIPv6 = isIPv6Address(target);
+
+    // console.log("Target:", target);
+    // console.log("IPv4 detection:", isIPv4);
+    // console.log("IPv6 detection:", isIPv6);
+
+    // If the target isn’t a valid IP, try resolving it (which may return an IP)
+    if (!isIPv4 && !isIPv6) {
+      // console.log(`Resolving IP for ${target}...`);
+      target = await resolveIP(target);
+      // Recheck the type after resolution
+      isIPv4 = isIPv4Address(target);
+      isIPv6 = isIPv6Address(target);
+    }
+
+    console.log(`🔍 Starting network scan for: ${target}`);
+    console.log("Final IPv4 detection:", isIPv4);
+    console.log("Final IPv6 detection:", isIPv6);
+
+    // Format IPv6 addresses correctly with brackets
+    const formattedTarget = target;
+    const nmapArgs = isIPv6 ? ["-6", "-p", "1-1024", formattedTarget] : ["-p", "1-1024", formattedTarget];
+
+    // Run Nmap scan using spawn() to stream output without truncation
+    const nmapProcess = spawn("nmap", nmapArgs);
+    let output = "";
+
+    nmapProcess.stdout.on("data", (data) => {
+      output += data.toString();
+    });
+
+    nmapProcess.stderr.on("data", (data) => {
+      console.error("Nmap Error:", data.toString());
+    });
+
+    nmapProcess.on("close", (code) => {
+      if (code !== 0) {
+        return res.status(500).json({ error: `Nmap scan failed with exit code ${code}` });
+      }
+      console.log(`🔍 Completed network scan for ${target}`);
+      const nmapResult = parseNmapOutput(output);
+      res.json(nmapResult);
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 🔹 Helper function: Resolve domain to IP (supports both IPv4 and IPv6)
+async function resolveIP(url) {
+  try {
+    const hostname = new URL(url).hostname;
+    const [ipv4, ipv6] = await Promise.all([
+      dns.resolve4(hostname).catch(() => []),
+      dns.resolve6(hostname).catch(() => []),
+    ]);
+    if (!ipv4.length && !ipv6.length) {
+      throw new Error("No IP addresses found");
+    }
+    return ipv6.length ? ipv6[0] : ipv4[0]; // Prioritize IPv6 if available
+  } catch (error) {
+    throw new Error(`Failed to resolve IP: ${error.message}`);
+  }
+}
+
+// 🔹 Helper function: Parse Nmap output
+function parseNmapOutput(nmapResult) {
+  const lines = nmapResult.split("\n");
+
+  // Extract host IP
+  const hostMatch = lines.find((line) => line.includes("Nmap scan report for"));
+  const host = hostMatch
+    ? hostMatch.split("(")[1]?.split(")")[0].trim()
+    : "Unknown";
+
+  // Extract open ports
+  const ports = lines
+    .filter((line) => /^\d+\/tcp\s+\w+\s+\w+/.test(line))
+    .map((line) => {
+      const [portInfo, state, service] = line.trim().split(/\s+/);
+      return {
+        port: parseInt(portInfo.split("/")[0], 10),
+        state: state.toLowerCase(),
+        service: service.toUpperCase(),
+      };
+    });
+
+  return { host, ports };
+}
+
+/**
+ * Resolve the IP address of a given hostname.
+ */
+// async function resolveIP(url) {
+//   try {
+//     const hostname = new URL(url).hostname; // Extract hostname from URL
+//     console.log(`Resolving IP for ${hostname}...`);
+//     const addresses = await dns.lookup(hostname);
+//     return addresses.address; // Return resolved IP
+//   } catch (error) {
+//     throw new Error(`Failed to resolve IP for ${url}: ${error.message}`);
+//   }
+// }
+
+// function parseNmapOutput(nmapResult) {
+//   const lines = nmapResult.split("\n");
+
+//   // Extract host IP from Nmap output
+//   const hostMatch = lines.find(line => line.includes("Nmap scan report for"));
+//   const host = hostMatch ? hostMatch.split("(")[1]?.split(")")[0].trim() : nmapResult.target;
+
+//   // Extract ports and states
+//   const portLines = lines.filter(line => /^\d+\/tcp\s+\w+\s+\w+/.test(line));
+
+//   const ports = portLines.map(line => {
+//       const [portInfo, state, service] = line.trim().split(/\s+/);
+//       return {
+//           port: parseInt(portInfo.split("/")[0], 10),
+//           state: state.toLowerCase(),
+//           service: service.toUpperCase(), // Standardize service names to uppercase
+//       };
+//   });
+
+//   return {
+//       host,
+//       ports
+//   };
+// }
 
 // Start Server
 const PORT = 3000;
