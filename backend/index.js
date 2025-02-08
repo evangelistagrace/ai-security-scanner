@@ -36,6 +36,11 @@ const llm = new ChatOpenAI({
   temperature: 0,
 });
 
+app.get('/api/hello', (req, res) => {
+  console.log('req.query:', req.query);
+  res.json({ message: 'Hello World!' })
+})
+
 /**
  * 🚀 Start a Full Scan - Web and Network
  *

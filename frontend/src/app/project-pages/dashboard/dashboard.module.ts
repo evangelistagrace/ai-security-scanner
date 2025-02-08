@@ -20,6 +20,10 @@ import { ChartModule } from 'angular2-chartjs';
 import { ChartComponent } from '../components/chart/chart.component';
 import { SmartTableComponent } from '../components/smart-table/smart-table.component';
 import { Ng2SmartTableModule } from 'ng2-smart-table';
+import { TabViewModule } from 'primeng/tabview';
+import { RadioButtonModule } from 'primeng/radiobutton';
+import { InputTextModule } from 'primeng/inputtext';
+import { ButtonModule } from 'primeng/button';
 
 @NgModule({
   imports: [
@@ -37,7 +41,11 @@ import { Ng2SmartTableModule } from 'ng2-smart-table';
     NbButtonModule,
     NgxEchartsModule,
     ChartModule,
-    Ng2SmartTableModule
+    Ng2SmartTableModule,
+    TabViewModule,
+    RadioButtonModule,
+    InputTextModule,
+    ButtonModule,
   ],
   declarations: [
     DashboardComponent,

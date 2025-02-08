@@ -7,10 +7,12 @@ import { ProjectPagesComponent } from './project-pages.component';
 import { DashboardComponent } from './dashboard/dashboard.component';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { HeaderComponent } from './components/header/header.component';
+import { TabViewModule } from 'primeng/tabview';
+
 
 const COMPONENTS = [
   ProjectPagesComponent,
-  HeaderComponent
+  HeaderComponent,
 ];
 
 @NgModule({
@@ -18,7 +20,8 @@ const COMPONENTS = [
     NbLayoutModule,
     ProjectPagesRoutingModule,
     ThemeModule,
-    DashboardModule
+    DashboardModule,
+    TabViewModule
   ],
   declarations: [
     [...COMPONENTS]
