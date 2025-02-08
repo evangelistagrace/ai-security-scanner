@@ -24,6 +24,9 @@ import { RadioButtonModule } from 'primeng/radiobutton';
 import { InputTextModule } from 'primeng/inputtext';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
+import { TagModule } from 'primeng/tag';
+import { MessagesModule } from 'primeng/messages';
+import { DialogModule } from 'primeng/dialog';
 
 @NgModule({
   imports: [
@@ -46,6 +49,10 @@ import { TableModule } from 'primeng/table';
     RadioButtonModule,
     InputTextModule,
     ButtonModule,
+    TableModule,
+    TagModule,
+    MessagesModule,
+    DialogModule,
     TableModule
   ],
   declarations: [

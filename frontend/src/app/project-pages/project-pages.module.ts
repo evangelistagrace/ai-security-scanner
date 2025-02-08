@@ -10,7 +10,6 @@ import { HeaderComponent } from './components/header/header.component';
 import { TabViewModule } from 'primeng/tabview';
 import { TableModule } from 'primeng/table';
 
-
 const COMPONENTS = [
   ProjectPagesComponent,
   HeaderComponent,
@@ -22,7 +21,7 @@ const COMPONENTS = [
     ProjectPagesRoutingModule,
     ThemeModule,
     DashboardModule,
-    TabViewModule
+    TabViewModule,
   ],
   declarations: [
     [...COMPONENTS]

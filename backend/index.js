@@ -10,6 +10,7 @@ const { ChatPromptTemplate } = require("@langchain/core/prompts");
 const { ChatOpenAI } = require("@langchain/openai");
 const dns = require("dns").promises;
 const net = require("net");
+const messageQueue = require("./services/messageQueue");
 
 require("dotenv").config();
 
@@ -36,16 +37,16 @@ const llm = new ChatOpenAI({
   temperature: 0,
 });
 
-app.get('/api/hello', (req, res) => {
-  console.log('req.query:', req.query);
-  res.json({ message: 'Hello World!' })
-})
+app.get("/api/hello", (req, res) => {
+  // console.log('req.query:', req.query);
+  res.json({ message: "Hello World!" });
+});
 
 /**
  * 🚀 Start a Full Scan - Web and Network
  *
  */
-app.get("/scan/full/:target", async (req, res) => {
+app.get("/api/scan/full/:target", async (req, res) => {
   const scanStatus = {
     currentStage: "initializing",
     stages: {
@@ -59,29 +60,37 @@ app.get("/scan/full/:target", async (req, res) => {
 
   try {
     const targetUrl = decodeURIComponent(req.params.target);
+    const scanId = messageQueue.createScan(targetUrl);
 
     // Spider Scan
+    messageQueue.addMessage(scanId, "🚀 Starting Spider Scan");
     scanStatus.currentStage = "spider";
     const spiderResponse = await axios.get(
       `http://localhost:${PORT}/scan/spider/${encodeURIComponent(targetUrl)}`
     );
     scanStatus.stages.spider = "completed";
+    messageQueue.addMessage(scanId, "🔥 Spider scan completed!", "success");
 
     // Active Scan
+    messageQueue.addMessage(scanId, "🚀 Starting Active Scan");
     scanStatus.currentStage = "active";
     const activeScanResponse = await axios.get(
       `http://localhost:${PORT}/scan/active/${encodeURIComponent(targetUrl)}`
     );
     scanStatus.stages.active = "completed";
+    messageQueue.addMessage(scanId, "🔥 Active Scan Completed!", "success");
 
     // Get Results
+    messageQueue.addMessage(scanId, "🚀 Fetching Scan Results");
     scanStatus.currentStage = "results";
     const resultsResponse = await axios.get(
       `http://localhost:${PORT}/scan/results/${encodeURIComponent(targetUrl)}`
     );
     scanStatus.stages.results = "completed";
+    messageQueue.addMessage(scanId, "🔥 Finished Fetching Results", "success");
 
     // Match CVEs if vulnerabilities found
+    messageQueue.addMessage(scanId, "🚀 Start Matching CVEs");
     scanStatus.currentStage = "cve";
     let cveMatches = [];
     if (
@@ -95,13 +104,18 @@ app.get("/scan/full/:target", async (req, res) => {
       cveMatches = cveResponse.data.matches;
     }
     scanStatus.stages.cve = "completed";
+    messageQueue.addMessage(scanId, "🔥 Finished Matching CVEs", "success");
 
     // Network Scan
+    messageQueue.addMessage(scanId, "🚀 Starting Network Scan");
     scanStatus.currentStage = "network";
     const networkScanResponse = await axios.get(
       `http://localhost:${PORT}/scan/network/${encodeURIComponent(targetUrl)}`
     );
     scanStatus.stages.network = "completed";
+    messageQueue.addMessage(scanId, "🔥 Network Scan Completed", "success");
+
+    messageQueue.completeScan(scanId);
 
     // Return combined results
     res.json({
@@ -114,7 +128,35 @@ app.get("/scan/full/:target", async (req, res) => {
           activeScanId: activeScanResponse.data.scanId,
           vulnerabilities: cveMatches || [],
         },
-        networkscan: networkScanResponse.data,
+        // map network scan results to have risk based on open ports - 22 (medium), 53 (high), 80 (high), 443 (medium)
+        // networkscan: networkScanResponse.data.ports.map((port) => {
+        //   let risk = 'Low';
+        //   if (port.port === 53 || port.port === 80) {
+        //     risk = 'High';
+        //   } else if (port.port === 22 || port.port === 443) {
+        //     risk = 'Medium';
+        //   }
+        //   return {
+        //     ...port,
+        //     risk
+        //   }
+        // }),
+        networkscan: {
+          host: networkScanResponse.data.host,
+          ports: networkScanResponse.data.ports.map((port) => {
+            let risk = "Low";
+            if (port.port === 53 || port.port === 80) {
+              risk = "High";
+            } else if (port.port === 22 || port.port === 443) {
+              risk = "Medium";
+            }
+            return {
+              ...port,
+              risk,
+            };
+          }),
+        },
+        // networkscan: networkScanResponse.data,
       },
     });
   } catch (error) {
@@ -128,6 +170,12 @@ app.get("/scan/full/:target", async (req, res) => {
       status: scanStatus,
     });
   }
+});
+
+app.get("/api/scan/status/:scanId", (req, res) => {
+  const { scanId } = req.params;
+  const messages = messageQueue.getScanMessages(scanId);
+  res.json({ messages });
 });
 
 /**
@@ -439,8 +487,8 @@ app.post("/scan/cve", async (req, res) => {
       const config = {
         headers: {
           "Content-Type": "application/json",
-          "x-apiKey": process.env.NVD_API_KEY
-        }
+          "x-apiKey": process.env.NVD_API_KEY,
+        },
       };
 
       // const headers = {
@@ -473,7 +521,7 @@ app.post("/scan/cve", async (req, res) => {
     res.json({ matches: matchedResults });
   } catch (error) {
     console.error("CVE matching error:", error.message);
-    console.log('full error:', error);
+    console.log("full error:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -561,13 +609,15 @@ async function generateCveKeywords({
 
 // Helper: Validate IPv4 address (each octet 0-255)
 function isIPv4Address(ip) {
-  const ipv4Regex = /^(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
+  const ipv4Regex =
+    /^(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
   return ipv4Regex.test(ip);
 }
 
 // Helper: Validate IPv6 address, including shorthand notation (e.g., "::")
 function isIPv6Address(ip) {
-  const ipv6Regex = /^((?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:){1,7}:|(?:[0-9A-Fa-f]{1,4}:){1,6}:[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:){1,5}(?::[0-9A-Fa-f]{1,4}){1,2}|(?:[0-9A-Fa-f]{1,4}:){1,4}(?::[0-9A-Fa-f]{1,4}){1,3}|(?:[0-9A-Fa-f]{1,4}:){1,3}(?::[0-9A-Fa-f]{1,4}){1,4}|(?:[0-9A-Fa-f]{1,4}:){1,2}(?::[0-9A-Fa-f]{1,4}){1,5}|[0-9A-Fa-f]{1,4}:(?:(?::[0-9A-Fa-f]{1,4}){1,6})|:(?:(?::[0-9A-Fa-f]{1,4}){1,7}|:))$/;
+  const ipv6Regex =
+    /^((?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:){1,7}:|(?:[0-9A-Fa-f]{1,4}:){1,6}:[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:){1,5}(?::[0-9A-Fa-f]{1,4}){1,2}|(?:[0-9A-Fa-f]{1,4}:){1,4}(?::[0-9A-Fa-f]{1,4}){1,3}|(?:[0-9A-Fa-f]{1,4}:){1,3}(?::[0-9A-Fa-f]{1,4}){1,4}|(?:[0-9A-Fa-f]{1,4}:){1,2}(?::[0-9A-Fa-f]{1,4}){1,5}|[0-9A-Fa-f]{1,4}:(?:(?::[0-9A-Fa-f]{1,4}){1,6})|:(?:(?::[0-9A-Fa-f]{1,4}){1,7}|:))$/;
   return ipv6Regex.test(ip);
 }
 
@@ -597,7 +647,9 @@ app.get("/scan/network/:target", async (req, res) => {
 
     // Format IPv6 addresses correctly with brackets
     const formattedTarget = target;
-    const nmapArgs = isIPv6 ? ["-6", "-p", "1-1024", formattedTarget] : ["-p", "1-1024", formattedTarget];
+    const nmapArgs = isIPv6
+      ? ["-6", "-p", "22,53,80,443", formattedTarget]
+      : ["-p", "22,53,80,443", formattedTarget];
 
     // Run Nmap scan using spawn() to stream output without truncation
     const nmapProcess = spawn("nmap", nmapArgs);
@@ -613,12 +665,96 @@ app.get("/scan/network/:target", async (req, res) => {
 
     nmapProcess.on("close", (code) => {
       if (code !== 0) {
-        return res.status(500).json({ error: `Nmap scan failed with exit code ${code}` });
+        return res
+          .status(500)
+          .json({ error: `Nmap scan failed with exit code ${code}` });
       }
       console.log(`🔍 Completed network scan for ${target}`);
       const nmapResult = parseNmapOutput(output);
       res.json(nmapResult);
     });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Add this near other routes
+
+app.post("/api/chat", async (req, res) => {
+  try {
+    const { message, scanResults } = req.body;
+
+    const prompt = ChatPromptTemplate.fromTemplate(`
+      You are a security expert analyzing scan results. Given the following scan results and user question, 
+      provide a helpful response. Be specific and reference the scan data when relevant.
+      
+      Scan Results: {scanResults}
+      
+      User Question: {message}
+      
+      Response:
+    `);
+
+    const chain = prompt.pipe(llm);
+    const response = await chain.invoke({
+      message: message,
+      scanResults: JSON.stringify(scanResults),
+    });
+
+    res.json({ response: response.content });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/summary", async (req, res) => {
+  try {
+    const { target, timestamp, scanResults } = req.body;
+
+    const prompt = ChatPromptTemplate.fromTemplate(`
+      You are a cybersecurity expert tasked with summarizing the results of a security scan. 
+      Your goal is to provide a **concise, insightful, and action-oriented summary** of the findings. 
+      The summary should be **structured**, highlighting key vulnerabilities, risk levels, and immediate security recommendations. 
+
+      ### Scan Summary:
+      - **Target URL/IP**: {target}
+      - **Scan Completion Time**: {timestamp}
+
+      ### Web Vulnerabilities:
+      Summarize the top vulnerabilities found in the web scan, emphasizing high and medium risks. 
+      Provide a count of occurrences and reference relevant CVEs where applicable.
+      For each, briefly explain its impact and the recommended mitigation.
+
+      Example Format:
+      - **Vulnerability Name** (Risk Level: High/Medium)
+        - Description: [Short impact statement]
+        - Affected Areas: [Generalized locations, e.g., headers, input validation]
+        - Recommended Fix: [Actionable remediation step]
+
+      ### Network Risks:
+      Summarize open ports and their associated risks. Identify critical security gaps.
+      Example:
+      - **Port 22 (SSH) - Risk: Medium**
+        - Open SSH service could be targeted for brute-force attacks.
+        - Consider restricting access via firewall rules or enforcing strong authentication.
+
+      ### Conclusion & Next Steps:
+      Summarize the security posture based on the findings. Highlight the most urgent fixes and any further investigation required.
+
+      #### Scan Data:
+      {scanResults}
+
+      Now, generate a structured summary based on the provided scan results.
+    `);
+
+    const chain = prompt.pipe(llm);
+    const response = await chain.invoke({
+      target: target,
+      timestamp: timestamp,
+      scanResults: JSON.stringify(scanResults),
+    });
+
+    res.json({ response: response.content });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

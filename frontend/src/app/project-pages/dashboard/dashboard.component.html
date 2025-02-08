@@ -6,6 +6,7 @@
         <div class="card">
           <p-tabView [styleClass]="'mt-2'">
             <p-tabPanel header="Start Scan">
+              <!-- <div class="row"> -->
               <div class="row">
                 <div class="col">
                   <input type="text" pInputText [(ngModel)]="scanTarget" />
@@ -43,23 +44,183 @@
                   </div>
                 </div>
                 <div class="col">
-                  <p-button label="Start Scan"></p-button>
+                  <p-button label="Start Scan" (click)="startScan()"></p-button>
                 </div>
               </div>
+              <div class="row mt-3">
+                <div class="card flex justify-content-center">
+                  <div class="console-output">
+                    <div
+                      *ngFor="let message of scanMessages"
+                      [ngClass]="message.type"
+                    >
+                      {{ message }}
+                    </div>
+                  </div>
+                  <!-- <textarea
+                    rows="5"
+                    cols="100"
+                    pInputTextarea
+                    [(ngModel)]="scanMessages"
+                  ></textarea> -->
+                </div>
+              </div>
+              <!-- </div> -->
             </p-tabPanel>
             <p-tabPanel header="Scan Results">
               <div class="row">
                 <div class="col-7">
-                  <ngx-data-table [items]="dataTableItems"></ngx-data-table>
+                  <!-- <ngx-data-table [items]="dataTableItems"></ngx-data-table>   -->
+                  <div class="card">
+                    <p-table
+                      [value]="scanResults"
+                      dataKey="name"
+                      [tableStyle]="{ 'min-width': '60rem' }"
+                    >
+                      <ng-template pTemplate="header">
+                        <tr>
+                          <th style="width: 5rem"></th>
+                          <th pSortableColumn="name">
+                            Vulnerability <p-sortIcon field="name"></p-sortIcon>
+                          </th>
+                          <th pSortableColumn="risk">
+                            Risk <p-sortIcon field="risk"></p-sortIcon>
+                          </th>
+                          <th pSortableColumn="confidence">
+                            Confidence
+                            <p-sortIcon field="confidence"></p-sortIcon>
+                          </th>
+                          <th>Occurrences</th>
+                          <!-- <th>Solution</th> -->
+                        </tr>
+                      </ng-template>
+                      <ng-template
+                        pTemplate="body"
+                        let-result
+                        let-expanded="expanded"
+                      >
+                        <tr>
+                          <td>
+                            <button
+                              type="button"
+                              pButton
+                              pRipple
+                              [pRowToggler]="result"
+                              class="p-button-text p-button-rounded p-button-plain"
+                              [icon]="
+                                expanded
+                                  ? 'pi pi-chevron-down'
+                                  : 'pi pi-chevron-right'
+                              "
+                            ></button>
+                          </td>
+                          <td>{{ result.name }}</td>
+                          <td>
+                            <p-tag
+                              [value]="result.risk"
+                              [severity]="getSeverity(result.risk)"
+                            ></p-tag>
+                          </td>
+                          <td>{{ result.confidence }}</td>
+                          <td>{{ result.count }}</td>
+                          <!-- <td>{{ result.solution }}</td> -->
+                        </tr>
+                      </ng-template>
+                      <ng-template pTemplate="rowexpansion" let-result>
+                        <tr>
+                          <td colspan="6">
+                            <div class="p-3">
+                              <h5>Solution</h5>
+                              <p>{{ result.solution }}</p>
+                            </div>
+                            <div class="p-3">
+                              <h5>CVE References</h5>
+                              <ul>
+                                <li *ngFor="let cve of result.cveIds">
+                                  <a
+                                    href="https://cve.mitre.org/cgi-bin/cvename.cgi?name={{
+                                      cve
+                                    }}"
+                                    target="_blank"
+                                    >{{ cve }}</a
+                                  >
+                                </li>
+                              </ul>
+                            </div>
+                          </td>
+                        </tr>
+                      </ng-template>
+                    </p-table>
+                  </div>
                 </div>
-                <div class="col-5">
+                <div class="col-5 text-center align-items-center">
+                  <!-- <p-messages [(value)]="messages1" [enableService]="false" [closable]="false"></p-messages> -->
+                    <p-button
+                    (click)="showSummary()"
+                    icon="pi pi-bolt"
+                    label="AI Summary"
+                    styleClass="p-button-lg mb-3"
+                    ></p-button>
+                  <p-dialog
+                    header="AI Summary"
+                    [(visible)]="visible"
+                    [style]="{ width: '50vw', height: '300px' }"
+                  >
+                    <p>
+                      {{ summary }}
+                    </p>
+                  </p-dialog>
                   <ngx-chart [items]="dataTableItems"></ngx-chart>
                 </div>
               </div>
             </p-tabPanel>
             <p-tabPanel header="Chat">
               <div class="row">
-                <!-- Web scan content -->
+                <div class="col-12">
+                  <div class="chat-container">
+                    <div
+                      class="messages"
+                      style="
+                        height: 400px;
+                        overflow-y: auto;
+                        margin-bottom: 20px;
+                      "
+                    >
+                      <div
+                        *ngFor="let msg of messages"
+                        [ngClass]="{
+                          'user-message': msg.sender === 'user',
+                          'assistant-message': msg.sender === 'assistant'
+                        }"
+                        style="margin-bottom: 10px; padding: 10px"
+                      >
+                        <strong>{{
+                          msg.sender === "user" ? "You" : "Assistant"
+                        }}</strong>
+                        <p>{{ msg.text }}</p>
+                        <small>{{ msg.timestamp | date : "short" }}</small>
+                      </div>
+                    </div>
+
+                    <div class="input-container d-flex">
+                      <input
+                        type="text"
+                        pInputText
+                        [(ngModel)]="currentMessage"
+                        (keyup.enter)="sendMessage()"
+                        placeholder="Ask about your scan results..."
+                        style="flex: 1; margin-right: 10px"
+                      />
+                      <p-button
+                        label="Send"
+                        icon="pi pi-send"
+                        [disabled]="!currentMessage.trim()"
+                        (onClick)="sendMessage()"
+                      >
+                      </p-button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </p-tabPanel>
           </p-tabView>
