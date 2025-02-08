@@ -3,11 +3,22 @@ const cors = require("cors");
 const axios = require("axios");
 const { exec } = require("child_process");
 const ZapClient = require("zaproxy");
+// const { OpenAI } = require("langchain/llms/openai");
+// const { PromptTemplate } = require("langchain/prompts");
+// const { LLMChain } = require("langchain/chains");
+const { ChatPromptTemplate } = require("@langchain/core/prompts");
+const { ChatOpenAI } = require("@langchain/openai");
+const dns = require("dns").promises;
+
 
 require("dotenv").config();
 
 const app = express();
 
+app.use(cors());
+app.use(express.json());
+
+// Instantiate ZAP proxy and client
 const zapOptions = {
   apiKey: process.env.ZAP_API_KEY, // ZAP API Key
   proxy: {
@@ -18,8 +29,87 @@ const zapOptions = {
 
 const zaproxy = new ZapClient(zapOptions);
 
-app.use(cors());
-app.use(express.json());
+// Instantiate LLM
+const llm = new ChatOpenAI({
+  model: "gpt-3.5-turbo",
+  temperature: 0,
+});
+
+/**
+ * 🎯 Run Complete Security Scan Pipeline
+ */
+app.get("/scan/full/:url", async (req, res) => {
+  const scanStatus = {
+    currentStage: "initializing",
+    stages: {
+      spider: "pending",
+      active: "pending",
+      results: "pending",
+      cve: "pending",
+    },
+  };
+
+  try {
+    const targetUrl = decodeURIComponent(req.params.url);
+
+    // Spider Scan
+    scanStatus.currentStage = "spider";
+    const spiderResponse = await axios.get(
+      `http://localhost:${PORT}/scan/spider/${encodeURIComponent(targetUrl)}`
+    );
+    scanStatus.stages.spider = "completed";
+
+    // Active Scan
+    scanStatus.currentStage = "active";
+    const activeScanResponse = await axios.get(
+      `http://localhost:${PORT}/scan/active/${encodeURIComponent(targetUrl)}`
+    );
+    scanStatus.stages.active = "completed";
+
+    // Get Results
+    scanStatus.currentStage = "results";
+    const resultsResponse = await axios.get(
+      `http://localhost:${PORT}/scan/results/${encodeURIComponent(targetUrl)}`
+    );
+    scanStatus.stages.results = "completed";
+
+    // Match CVEs if vulnerabilities found
+    scanStatus.currentStage = "cve";
+    let cveMatches = [];
+    if (
+      resultsResponse.data.alertsResponse &&
+      resultsResponse.data.alertsResponse.length > 0
+    ) {
+      const cveResponse = await axios.post(
+        `http://localhost:${PORT}/scan/cve`,
+        { alertsResponse: resultsResponse.data.alertsResponse }
+      );
+      cveMatches = cveResponse.data.matches;
+    }
+    scanStatus.stages.cve = "completed";
+
+    // Return combined results
+    res.json({
+      status: scanStatus,
+      url: targetUrl,
+      timestamp: new Date().toISOString(),
+      spiderScanId: spiderResponse.data.scanId,
+      activeScanId: activeScanResponse.data.scanId,
+      //   vulnerabilities: resultsResponse.data.alertsResponse || [],
+      vulnerabilities: cveMatches || [],
+    });
+  } catch (error) {
+    console.error(
+      `Error during ${scanStatus.currentStage} scan:`,
+      error.message
+    );
+    scanStatus.stages[scanStatus.currentStage] = "failed";
+    res.status(500).json({
+      error: `Failed during ${scanStatus.currentStage} scan: ${error.message}`,
+      status: scanStatus,
+    });
+  }
+});
 
 /**
  * 🕷️ Start a Spider Scan (Crawls Website)
@@ -30,7 +120,7 @@ app.get("/scan/spider/:url", async (req, res) => {
     const params = {
       url: targetUrl,
     };
-    console.log(`Starting Spider Scan on ${targetUrl}`);
+    console.log(`🚀 Starting Spider Scan on ${targetUrl}`);
 
     // Start the spider scan
     const response = await zaproxy.spider.scan(params);
@@ -53,7 +143,7 @@ app.get("/scan/spider/:url", async (req, res) => {
       console.log(`Spider Scan Progress: ${status}%`);
     } while (status < 100);
 
-    console.log("Spider scan completed!");
+    console.log("🔥 Spider scan completed!");
 
     res.json({ message: "Spider scan completed successfully", scanId });
   } catch (error) {
@@ -70,7 +160,7 @@ app.get("/scan/active/:url", async (req, res) => {
   const params = {
     url: targetUrl,
   };
-  console.log(`Starting Active Scan on ${targetUrl}`);
+  console.log(`🚀 Starting Active Scan on ${targetUrl}`);
   try {
     // Ensure the site has been accessed before scanning
     await zaproxy.core.accessUrl(params);
@@ -83,7 +173,7 @@ app.get("/scan/active/:url", async (req, res) => {
       );
     }
 
-    console.log("Active Scan Started:", response);
+    // console.log("Active Scan Started:", response);
     let status = 0;
 
     // Poll scan status every 5 seconds
@@ -93,7 +183,7 @@ app.get("/scan/active/:url", async (req, res) => {
       console.log(`Active Scan Progress: ${status}%`);
     } while (status < 100);
 
-    console.log("Active Scan Completed!");
+    console.log("🔥 Active Scan Completed!");
     res.json({ message: "Active scan completed", scanId: response.scan });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -109,7 +199,7 @@ app.get("/scan/results/:url", async (req, res) => {
     const params = {
       baseurl: targetUrl,
     };
-    console.log("Fetching scan results...");
+    console.log(`🚀 Fetching Scan Results For ${targetUrl}`);
 
     let { alerts } = await zaproxy.alert.alerts(params);
 
@@ -156,14 +246,6 @@ app.get("/scan/results/:url", async (req, res) => {
     */
 
     // Safely parse scan results
-    // filter out alerts with risk:informational and sort by risk level (high to low)
-    alerts = alerts
-      .filter((alert) => alert.risk !== "Informational")
-      .sort((a, b) => {
-        const riskLevels = ["Low", "Medium", "High"];
-        return riskLevels.indexOf(b.risk) - riskLevels.indexOf(a.risk);
-      });
-
     // group alerts by name and then combine the urls
     const alertsMap = alerts.reduce((acc, alert) => {
       if (!acc[alert.name]) {
@@ -183,8 +265,6 @@ app.get("/scan/results/:url", async (req, res) => {
     // Convert map to array format
     const groupedAlerts = Object.values(alertsMap);
 
-    console.log("grouped alerts: ", groupedAlerts);
-
     const alertsResponse = groupedAlerts.map((alert) => ({
       name: alert.name || "Unknown Vulnerability",
       risk: alert.risk || "Unknown Risk",
@@ -195,7 +275,34 @@ app.get("/scan/results/:url", async (req, res) => {
       urls: alert.urls ? alert.urls : "No URL found",
     }));
 
-    console.log("Finished fetching scan results");
+    // run the alerts through the LLM to generate keywords for CVE lookup
+    await Promise.all(
+      alertsResponse
+        .filter(
+          (alert) =>
+            alert.name !== "Unknown Vulnerability" &&
+            alert.risk !== "Informational" &&
+            alert.risk !== "Unknown Risk"
+        )
+        .map(async (alert) => {
+          const keyword = await generateCveKeywords({
+            vulnerabilityName: alert.name,
+            vulnerabilityDescription: alert.description
+              ? alert.description
+              : "No description available",
+          });
+          alert.cveKeyword = keyword;
+          return alert;
+        })
+    );
+
+    // Sort after promises are resolved
+    alertsResponse.sort((a, b) => {
+      const riskLevels = ["Informational", "Low", "Medium", "High"];
+      return riskLevels.indexOf(b.risk) - riskLevels.indexOf(a.risk);
+    });
+
+    console.log("🔥 Finished Fetching Scan Results");
     res.json({ message: "Scan results retrieved", alertsResponse });
   } catch (error) {
     console.error("Error fetching alerts:", error.message);
@@ -208,13 +315,26 @@ app.get("/scan/results/:url", async (req, res) => {
  */
 app.post("/scan/cve", async (req, res) => {
   try {
+    // console.log(req.body)
     const alerts = req.body.alertsResponse;
     const cveApiV2BaseUrl = "https://services.nvd.nist.gov/rest/json/cves/2.0";
-    console.log("Starting CVE matching...");
+    console.log("🚀 Starting CVE Matching");
     // Process alerts concurrently
     const matchPromises = alerts.map(async (alert) => {
+      if (!alert.cveKeyword) {
+        return {
+          alert: {
+            name: alert.name,
+            risk: alert.risk,
+            description: alert.description,
+            solution: alert.solution,
+            urls: alert.urls,
+          },
+          cves: [],
+        };
+      }
       const url = `${cveApiV2BaseUrl}?keywordSearch=${encodeURIComponent(
-        alert.name
+        alert.cveKeyword
       )}`;
 
       const headers = {
@@ -222,7 +342,7 @@ app.post("/scan/cve", async (req, res) => {
         "x-apiKey": process.env.NVD_API_KEY,
       };
 
-      await new Promise((resolve) => setTimeout(resolve, 6000)); // Sleep for 6 second before each request
+      await new Promise((resolve) => setTimeout(resolve, 8000)); // Sleep for 6 second before each request
       const response = await axios.get(url, { headers });
 
       return {
@@ -232,6 +352,7 @@ app.post("/scan/cve", async (req, res) => {
           description: alert.description,
           solution: alert.solution,
           urls: alert.urls,
+          cveKeyword: alert.cveKeyword || "No CVE Keyword",
         },
         cves: response.data.vulnerabilities.map((cve) => ({
           id: cve.cve.id,
@@ -244,7 +365,7 @@ app.post("/scan/cve", async (req, res) => {
 
     const matchedResults = await Promise.all(matchPromises);
 
-    console.log("Finished matching CVEs");
+    console.log("🔥 Finished CVE Matching");
 
     res.json({ matches: matchedResults });
   } catch (error) {
@@ -305,6 +426,76 @@ app.get("/scan/network/:ip", (req, res) => {
   });
 });
 
+app.get(
+  "/generate-cve-keyword/:vulnerabilityName/:vulnerabilityDescription",
+  async (req, res) => {
+    const vulnerabilityName = req.params.vulnerabilityName;
+    const vulnerabilityDescription = req.params.vulnerabilityDescription;
+    const vulnerability = {
+      vulnerabilityName,
+      vulnerabilityDescription,
+    };
+    console.log("Generating CVE keyword for:", vulnerability);
+    const keyword = await generateCveKeywords(vulnerability);
+    res.json({ keyword });
+  }
+);
+
+async function generateCveKeywords({
+  vulnerabilityName,
+  vulnerabilityDescription,
+}) {
+  try {
+    const prompt = ChatPromptTemplate.fromTemplate(
+      "Given the vulnerability name: {vulnerabilityName} and vulnerability description: {vulnerabilityDescription}, extract a concise keyword for CVE lookup that specifically identifies the header in question. Remove any negations or extraneous words (e.g., 'Missing', 'Not Set'). For example: - For 'Missing Anti-clickjacking Header', return 'Anti-clickjacking Header'. - For 'Content Security Policy (CSP) Header Not Set', return 'Content Security Policy (CSP) Header'. - For 'Strict-Transport-Security Header Not Set', return 'Strict-Transport-Security Header'. Return only the keyword without additional commentary."
+    );
+    // const prompt = ChatPromptTemplate.fromTemplate(
+    //   "Tell me a {adjective} joke"
+    // );
+    const chain = prompt.pipe(llm);
+    const response = await chain.invoke({
+      vulnerabilityName: vulnerabilityName,
+      vulnerabilityDescription: vulnerabilityDescription,
+    });
+    const keyword = response.content;
+    console.log(keyword);
+
+    // The response.text contains the raw output from the LLM.
+    // Split it into keywords assuming a comma-separated output.
+    // const keywords = response.text
+    //   .trim()
+    //   .split(",")
+    //   .map((kw) => kw.trim())
+    //   .filter((kw) => kw.length > 0);
+    return keyword;
+  } catch (error) {
+    console.error("Error generating keywords:", error);
+    // Fallback: return the original vulnerability name in an array
+    return [vulnerabilityName];
+  }
+}
+
 // Start Server
 const PORT = 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, async () => {
+  // instantiate ZAP Client
+  // Check if ZAP is already running on port 8080
+  exec("lsof -i :8080", (err, stdout) => {
+    if (stdout) {
+      console.log("ZAP Proxy is already running on port 8080");
+    } else {
+      exec(
+        "/Applications/ZAP.app/Contents/Java/zap.sh -daemon -port 8080",
+        (error, stdout) => {
+          if (error) {
+            console.error("Error starting ZAP Proxy:", error.message);
+          } else {
+            console.log("ZAP Proxy started successfully");
+          }
+        }
+      );
+    }
+  });
+
+  console.log(`Server running on port ${PORT}`);
+});
