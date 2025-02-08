@@ -3,11 +3,16 @@
     "start": "nodemon index.js"
   },
   "dependencies": {
+    "@langchain/core": "^0.3.38",
+    "@langchain/openai": "^0.4.2",
     "axios": "^1.7.9",
     "child_process": "^1.0.2",
     "cors": "^2.8.5",
+    "dns": "^0.2.2",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "langchain": "^0.3.15",
+    "openai": "^4.83.0",
     "zaproxy": "^2.0.0-rc.6"
   },
   "devDependencies": {
