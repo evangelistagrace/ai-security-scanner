@@ -516,15 +516,6 @@ app.get("/scan/cve/:keyword", async (req, res) => {
   }
 });
 
-// Run Nmap Scan
-// app.get("/scan/network/:ip", (req, res) => {
-//   const targetIP = req.params.ip;
-//   exec(`nmap -p 22,80,443 ${targetIP}`, (error, stdout) => {
-//     if (error) return res.status(500).json({ error: error.message });
-//     res.json({ result: stdout });
-//   });
-// });
-
 app.get(
   "/generate-cve-keyword/:vulnerabilityName/:vulnerabilityDescription",
   async (req, res) => {
@@ -540,90 +531,6 @@ app.get(
   }
 );
 
-// app.get("/scan/network/:target", async (req, res) => {
-//   try {
-//     let target = decodeURIComponent(req.params.target);
-
-//     // Check if input is an IP or a URL
-//     const isIP = /^[0-9.]+$/.test(target);
-//     if (!isIP) {
-//       console.log(`Resolving IP for ${target}...`);
-//       target = await resolveIP(target); // Convert URL to IP
-//     }
-
-//     console.log(`🔍 Started network scan for IP: ${target}`);
-
-//     // Run Nmap scan
-//     exec(`nmap -p 1-1024 ${target}`, (error, stdout) => {
-//       if (error) return res.status(500).json({ error: error.message });
-//       const nmapResult = parseNmapOutput(stdout);
-
-//       console.log(`🔍 Completed network scan for IP: ${target}`);
-
-//       res.json({ ...nmapResult });
-//     });
-//   } catch (error) {
-//     res.status(500).json({ error: error.message });
-//   }
-// });
-// app.get("/scan/network/:target", async (req, res) => {
-//   try {
-//     let target = decodeURIComponent(req.params.target);
-
-//     // Updated regex to support both IPv4 and IPv6
-//     const isIPv4 = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(target);
-//     const isIPv6 = /^(?:[A-F0-9]{1,4}:){7}[A-F0-9]{1,4}$/i.test(target);
-
-//     if (!isIPv4 && !isIPv6) {
-//       console.log(`Resolving IP for ${target}...`);
-//       target = await resolveIP(target);
-//     }
-
-//     console.log(`🔍 Started network scan for IP: ${target}`);
-
-//     // Format target for nmap (IPv6 needs brackets)
-//     // const formattedTarget = isIPv6 ? `[${target}]` : target;
-
-//     // Add -6 flag for IPv6
-//     const nmapCommand = isIPv6
-//       ? `nmap -6 -p 1-1024 ${target}`
-//       : `nmap -p 1-1024 ${target}`;
-
-//     exec(nmapCommand, (error, stdout) => {
-//       if (error) return res.status(500).json({ error: error.message });
-//       console.log('result: ',stdout);
-//       const nmapResult = parseNmapOutput(stdout);
-
-//       console.log(`🔍 Completed network scan for IP: ${target}`);
-
-//       res.json({ ...nmapResult });
-//     });
-//   } catch (error) {
-//     res.status(500).json({ error: error.message });
-//   }
-// });
-
-// // Add this helper function
-// async function resolveIP(url) {
-//   const dns = require('dns').promises;
-//   try {
-//     const hostname = new URL(url).hostname;
-//     const records = await Promise.all([
-//       dns.resolve4(hostname).catch(() => []),
-//       dns.resolve6(hostname).catch(() => [])
-//     ]);
-
-//     const [ipv4, ipv6] = records;
-//     if (!ipv4.length && !ipv6.length) {
-//       throw new Error('No IP addresses found');
-//     }
-
-//     return ipv6.length ? ipv6[0] : ipv4[0];
-//   } catch (error) {
-//     throw new Error(`Failed to resolve IP: ${error.message}`);
-//   }
-// }
-
 async function generateCveKeywords({
   vulnerabilityName,
   vulnerabilityDescription,
@@ -632,9 +539,6 @@ async function generateCveKeywords({
     const prompt = ChatPromptTemplate.fromTemplate(
       "Given the vulnerability name: {vulnerabilityName} and vulnerability description: {vulnerabilityDescription}, extract a concise keyword for CVE lookup that specifically identifies the header in question. Remove any negations or extraneous words (e.g., 'Missing', 'Not Set'). For example: - For 'Missing Anti-clickjacking Header', return 'Anti-clickjacking Header'. - For 'Content Security Policy (CSP) Header Not Set', return 'Content Security Policy (CSP) Header'. - For 'Strict-Transport-Security Header Not Set', return 'Strict-Transport-Security Header'. Return only the keyword without additional commentary."
     );
-    // const prompt = ChatPromptTemplate.fromTemplate(
-    //   "Tell me a {adjective} joke"
-    // );
     const chain = prompt.pipe(llm);
     const response = await chain.invoke({
       vulnerabilityName: vulnerabilityName,
@@ -642,14 +546,6 @@ async function generateCveKeywords({
     });
     const keyword = response.content;
     console.log(keyword);
-
-    // The response.text contains the raw output from the LLM.
-    // Split it into keywords assuming a comma-separated output.
-    // const keywords = response.text
-    //   .trim()
-    //   .split(",")
-    //   .map((kw) => kw.trim())
-    //   .filter((kw) => kw.length > 0);
     return keyword;
   } catch (error) {
     console.error("Error generating keywords:", error);
@@ -657,61 +553,6 @@ async function generateCveKeywords({
     return [vulnerabilityName];
   }
 }
-
-// app.get("/scan/network/:target", async (req, res) => {
-//   try {
-//     let target = decodeURIComponent(req.params.target);
-
-//     // Updated IPv6 regex to handle all valid formats
-//     const isIPv4 = net.isIPv4(target);
-//     const isIPv6 = net.isIPv6(target);
-
-//     // Debug logging
-//     console.log("Target:", target);
-//     console.log("IPv4 detection:", isIPv4);
-//     console.log("IPv6 detection:", isIPv6);
-
-//     if (!isIPv4 && !isIPv6) {
-//       console.log(`Resolving IP for ${target}...`);
-//       target = await resolveIP(target); // Convert domain to IP
-//     }
-
-//     console.log(`🔍 Starting network scan for: ${target}`);
-
-//     // Format IPv6 addresses correctly with brackets
-//     const formattedTarget = isIPv6 ? `[${target}]` : target;
-//     const nmapArgs =
-//       isIPv6 || (!isIPv4 && !isIPv6)
-//         ? ["-6", "-p", "22,80,443", formattedTarget]
-//         : ["-p", "22,80,443", formattedTarget];
-
-//     // Run Nmap scan using spawn() to prevent output truncation
-//     const nmapProcess = spawn("nmap", nmapArgs);
-
-//     let output = "";
-//     nmapProcess.stdout.on("data", (data) => {
-//       output += data.toString();
-//     });
-
-//     nmapProcess.stderr.on("data", (data) => {
-//       console.error("Nmap Error:", data.toString());
-//     });
-
-//     nmapProcess.on("close", (code) => {
-//       if (code !== 0) {
-//         return res
-//           .status(500)
-//           .json({ error: `Nmap scan failed with exit code ${code}` });
-//       }
-
-//       console.log(`🔍 Completed network scan for ${target}`);
-//       const nmapResult = parseNmapOutput(output);
-//       res.json(nmapResult);
-//     });
-//   } catch (error) {
-//     res.status(500).json({ error: error.message });
-//   }
-// });
 
 // Helper: Validate IPv4 address (each octet 0-255)
 function isIPv4Address(ip) {
@@ -725,7 +566,9 @@ function isIPv6Address(ip) {
   return ipv6Regex.test(ip);
 }
 
-// Improved network scan endpoint
+/**
+ * 🎯 Run Complete Network Scan
+ */
 app.get("/scan/network/:target", async (req, res) => {
   try {
     let target = decodeURIComponent(req.params.target);
@@ -733,10 +576,6 @@ app.get("/scan/network/:target", async (req, res) => {
     // Use our helper functions to test for IPv4 and IPv6
     let isIPv4 = isIPv4Address(target);
     let isIPv6 = isIPv6Address(target);
-
-    // console.log("Target:", target);
-    // console.log("IPv4 detection:", isIPv4);
-    // console.log("IPv6 detection:", isIPv6);
 
     // If the target isn’t a valid IP, try resolving it (which may return an IP)
     if (!isIPv4 && !isIPv6) {
@@ -821,45 +660,6 @@ function parseNmapOutput(nmapResult) {
 
   return { host, ports };
 }
-
-/**
- * Resolve the IP address of a given hostname.
- */
-// async function resolveIP(url) {
-//   try {
-//     const hostname = new URL(url).hostname; // Extract hostname from URL
-//     console.log(`Resolving IP for ${hostname}...`);
-//     const addresses = await dns.lookup(hostname);
-//     return addresses.address; // Return resolved IP
-//   } catch (error) {
-//     throw new Error(`Failed to resolve IP for ${url}: ${error.message}`);
-//   }
-// }
-
-// function parseNmapOutput(nmapResult) {
-//   const lines = nmapResult.split("\n");
-
-//   // Extract host IP from Nmap output
-//   const hostMatch = lines.find(line => line.includes("Nmap scan report for"));
-//   const host = hostMatch ? hostMatch.split("(")[1]?.split(")")[0].trim() : nmapResult.target;
-
-//   // Extract ports and states
-//   const portLines = lines.filter(line => /^\d+\/tcp\s+\w+\s+\w+/.test(line));
-
-//   const ports = portLines.map(line => {
-//       const [portInfo, state, service] = line.trim().split(/\s+/);
-//       return {
-//           port: parseInt(portInfo.split("/")[0], 10),
-//           state: state.toLowerCase(),
-//           service: service.toUpperCase(), // Standardize service names to uppercase
-//       };
-//   });
-
-//   return {
-//       host,
-//       ports
-//   };
-// }
 
 // Start Server
 const PORT = 3000;
