@@ -1,2 +1,45 @@
-<ng2-smart-table [settings]="settings" [source]="items">]
-</ng2-smart-table>
+<p-table [value]="items" dataKey="name" [tableStyle]="{ 'min-width': '60rem' }">
+    <ng-template pTemplate="header">
+        <tr>
+            <th style="width: 5rem"></th>
+            <th>Severity</th>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Count</th>
+        </tr>
+    </ng-template>
+    <ng-template pTemplate="body" let-item let-expanded="expanded">
+        <tr>
+            <td>
+                <button *ngIf="item.description !== null; else hideButton" type="button" pButton pRipple [pRowToggler]="item" class="p-button-text p-button-rounded p-button-plain" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"></button>
+                <ng-template #hideButton>
+                    <button disabled type="button" pButton pRipple [pRowToggler]="item" [ngStyle]="{opacity: 0}" class="p-button-text p-button-rounded p-button-plain" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"></button>
+                </ng-template>
+                
+            </td>
+            <td><span [innerHtml]="item.risk"></span></td>
+            <td>{{ item.name }}</td>
+            <td>{{ item.type }}</td>
+            <td>{{ item.count }}</td>
+        </tr>
+    </ng-template>
+    <ng-template pTemplate="rowexpansion" let-item>
+        <tr>
+            <td colspan="5">
+                <div *ngIf="item.description !== null">
+                    <div>
+                        <strong>Description</strong>
+                    </div>
+                    <div class="mt-1">{{ item.description }}</div>
+                </div>
+
+                <div class="mt-4" *ngIf="item.solution !== null">
+                    <div>
+                        <strong>Solution</strong>
+                    </div>
+                    <div class="mt-1">{{ item.solution }}</div>
+                </div>
+            </td>
+        </tr>
+    </ng-template>
+</p-table>

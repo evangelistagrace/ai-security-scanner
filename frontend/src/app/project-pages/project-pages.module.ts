@@ -8,6 +8,7 @@ import { DashboardComponent } from './dashboard/dashboard.component';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { HeaderComponent } from './components/header/header.component';
 import { TabViewModule } from 'primeng/tabview';
+import { TableModule } from 'primeng/table';
 
 
 const COMPONENTS = [

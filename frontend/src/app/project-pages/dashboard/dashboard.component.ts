@@ -54,7 +54,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
             confidence: "Medium",
             description:
               "The response does not protect against 'ClickJacking' attacks. It should include either Content-Security-Policy with 'frame-ancestors' directive or X-Frame-Options.",
-            solution: "Use parameterized queries",
+            solution: null,
             count: 1,
             cveIds: ["CVE-2022-1234"],
             cveKeyword: "Anti-clickjacking Header",
@@ -78,6 +78,8 @@ export class DashboardComponent implements OnInit, OnDestroy {
         <VulnerabilityTableItem>{
           risk: this.getHtmlCode(a.risk),
           riskText: a.risk,
+          description: a.description,
+          solution: a.solution,
           name: a.name,
           type: "Web",
           count: a.count,
@@ -101,12 +103,12 @@ export class DashboardComponent implements OnInit, OnDestroy {
   getHtmlCode(text: string) {
     const code =
       text == "High"
-        ? `<div class="d-flex justify-content-center"><div class="table-item high">${text}</div></div>`
+        ? `<div class="table-item high">${text}</div>`
         : text == "Medium"
-        ? `<div class="d-flex justify-content-center"><div class="table-item medium">${text}</div></div>`
+        ? `<div class="table-item medium">${text}</div>`
         : text == "Low"
-        ? `<div class="d-flex justify-content-center"><div class="table-item low">${text}</div></div>`
-        : `<div class="d-flex justify-content-center"><div class="table-item info">${text}</div></div>`;
+        ? `<div class="table-item low">${text}</div>`
+        : `<div class="table-item info">${text}</div>`;
     return code;
   }
 
