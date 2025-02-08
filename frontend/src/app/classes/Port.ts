@@ -1,6 +1,6 @@
 export interface Port {
     port: number,
-    risk: string,
+    risk?: string,
     state: string,
     service: string
 }

@@ -21,15 +21,28 @@ export class ChartComponent implements OnDestroy {
 
   ngOnChanges() {
     this.themeSubscription = this.theme.getJsTheme().subscribe(config => {
-
-      const colors: any = config.variables;
       const chartjs: any = config.variables.chartjs;
 
+      const colorMap: Record<string, string> = {
+        "High": "#f13637",
+        "Medium": "#fd8e39",
+        "Low": "#f3bb1b",
+        "Info": "#3f66fb"
+      };    
+      
+      const mappedData = this.items.reduce((acc, item) => {
+        if (!acc[item.riskText]) {
+            acc[item.riskText] = { count: 0, color: colorMap[item.riskText] || "#3f66fb" };
+        }
+        acc[item.riskText].count += 1;
+        return acc;
+      }, {} as Record<string, { count: number; color: string }>);
+
       this.data = {
-        labels: [...this.items.map(a => a.riskText)],
+        labels: Object.keys(mappedData),
         datasets: [{
-          data: [300, 500, 100],
-          backgroundColor: [colors.primaryLight, colors.infoLight, colors.successLight],
+          data: Object.keys(mappedData).map(label => mappedData[label].count),
+          backgroundColor: Object.keys(mappedData).map(label => mappedData[label].color),
         }],
       };
 
