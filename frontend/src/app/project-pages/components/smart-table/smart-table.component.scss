@@ -1,0 +1,33 @@
+@import '../../../@theme/styles/themes';
+
+@include nb-install-component() {
+  ::ng-deep .high {
+    background-color: #F13637;
+  }
+
+  ::ng-deep .medium {
+    background-color: #FD8E39;
+  }
+
+  ::ng-deep .low {
+    background-color: #F3BB1B;
+  }
+
+  ::ng-deep .info {
+    background-color: #3F66FB;
+  }
+
+  ::ng-deep .table-item {
+    width: 100px;
+    padding: 4px 12px;
+    border-radius: 6px;
+    color: #fff;
+    font-weight: 700;
+    text-align: center;
+    text-transform: uppercase;
+  }
+
+  nb-card {
+    transform: translate3d(0, 0, 0);
+  }
+}
