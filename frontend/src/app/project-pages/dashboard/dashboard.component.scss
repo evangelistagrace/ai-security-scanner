@@ -5,6 +5,48 @@
 @import 'primeng/resources/primeng.css';
 
 @include nb-install-component() {
+
+  .scan-group {
+    padding: 1rem;
+    
+    input {
+      height: 48px;
+      border: 1px solid #0f151b;
+      border-radius: 4px;
+      padding: 0.75rem 1rem;
+      font-size: 1rem;
+      flex: 1;
+    }
+  
+    .radio-buttons {
+      white-space: nowrap;
+      margin-left: 20px;
+      
+      label {
+        margin-right: 1.5rem;
+        color: #495057;
+      }
+    }
+  
+    ::ng-deep {
+      .p-button.scan-button {
+        background-color: #4285f4;
+        border-color: #4285f4;
+        border-radius: 4px;
+        padding: 0.75rem 1.5rem;
+        height: 48px;
+      }
+  
+      .p-radiobutton {
+        margin-right: 0.5rem;
+      }
+
+      .p-inputtext[_ngcontent-qpa-c184] {
+        margin: 1rem;
+      }
+    }
+  }
+  
   nb-card-header {
     margin-top: 16px;
     font-size: 2.15em;
