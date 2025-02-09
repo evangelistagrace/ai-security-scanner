@@ -1,14 +1,13 @@
-@import '../../@theme/styles/themes';
-@import 'bootstrap/scss/mixins/breakpoints';
-@import '@nebular/theme/styles/global/breakpoints';
-@import 'primeng/resources/themes/lara-light-blue/theme.css';
-@import 'primeng/resources/primeng.css';
+@import "../../@theme/styles/themes";
+@import "bootstrap/scss/mixins/breakpoints";
+@import "@nebular/theme/styles/global/breakpoints";
+@import "primeng/resources/themes/lara-light-blue/theme.css";
+@import "primeng/resources/primeng.css";
 
 @include nb-install-component() {
-
   .scan-group {
     padding: 1rem;
-    
+
     input {
       height: 48px;
       border: 1px solid #0f151b;
@@ -17,17 +16,17 @@
       font-size: 1rem;
       flex: 1;
     }
-  
+
     .radio-buttons {
       white-space: nowrap;
       margin-left: 20px;
-      
+
       label {
         margin-right: 1.5rem;
         color: #495057;
       }
     }
-  
+
     ::ng-deep {
       .p-button.scan-button {
         background-color: #4285f4;
@@ -36,7 +35,7 @@
         padding: 0.75rem 1.5rem;
         height: 48px;
       }
-  
+
       .p-radiobutton {
         margin-right: 0.5rem;
       }
@@ -46,7 +45,7 @@
       }
     }
   }
-  
+
   nb-card-header {
     margin-top: 16px;
     font-size: 2.15em;
@@ -100,28 +99,32 @@
   p-tag {
     text-transform: capitalize;
   }
-  
-  p-tag[severity='danger'] {
+
+  p-tag[severity="danger"] {
     background-color: #e74c3c;
     color: white;
   }
-  
-  p-tag[severity='warning'] {
+
+  p-tag[severity="warning"] {
     background-color: #f39c12;
     color: white;
   }
-  
-  p-tag[severity='info'] {
+
+  p-tag[severity="info"] {
     background-color: #3498db;
     color: white;
   }
-  
-  p-tag[severity='success'] {
+
+  p-tag[severity="success"] {
     background-color: #2ecc71;
     color: white;
   }
 
   ::ng-deep p-button-lg {
     background-color: purple;
+  }
+
+  .row.mt-3 {
+    justify-content: center;
   }
 }
