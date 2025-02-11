@@ -33,8 +33,8 @@ const zaproxy = new ZapClient(zapOptions);
 
 // Instantiate LLM
 const llm = new ChatOpenAI({
-  model: "gpt-3.5-turbo",
-  temperature: 0,
+  model: "gpt-4o-mini",
+  temperature: 0.2,
 });
 
 app.get("/api/hello", (req, res) => {
